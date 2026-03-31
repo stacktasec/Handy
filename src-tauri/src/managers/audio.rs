@@ -1,4 +1,4 @@
-use crate::audio_toolkit::{list_input_devices, vad::SmoothedVad, AudioRecorder, SileroVad};
+use crate::audio_toolkit::{list_input_devices, AudioRecorder};
 use crate::helpers::clamshell;
 use crate::settings::{get_settings, AppSettings};
 use crate::utils;
@@ -118,18 +118,13 @@ pub enum MicrophoneMode {
 /* ──────────────────────────────────────────────────────────────── */
 
 fn create_audio_recorder(
-    vad_path: &str,
+    _vad_path: &str,
     app_handle: &tauri::AppHandle,
 ) -> Result<AudioRecorder, anyhow::Error> {
-    let silero = SileroVad::new(vad_path, 0.3)
-        .map_err(|e| anyhow::anyhow!("Failed to create SileroVad: {}", e))?;
-    let smoothed_vad = SmoothedVad::new(Box::new(silero), 15, 15, 2);
-
-    // Recorder with VAD plus a spectrum-level callback that forwards updates to
+    // Recorder with a spectrum-level callback that forwards updates to
     // the frontend.
     let recorder = AudioRecorder::new()
         .map_err(|e| anyhow::anyhow!("Failed to create AudioRecorder: {}", e))?
-        .with_vad(Box::new(smoothed_vad))
         .with_level_callback({
             let app_handle = app_handle.clone();
             move |levels| {
