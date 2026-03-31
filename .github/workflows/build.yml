@@ -337,6 +337,20 @@ jobs:
             '.bundle.linux.deb.files["/usr/lib/libonnxruntime.so"] = $so | .bundle.linux.deb.files["/usr/lib/libonnxruntime.so.1"] = $so1 | .bundle.linux.deb.files["/usr/lib/libonnxruntime.so.1.24.2"] = $sov' \
             src-tauri/tauri.conf.json > tmp.json && mv tmp.json src-tauri/tauri.conf.json
 
+      - name: Disable Windows signing for unsigned builds
+        if: contains(inputs.platform, 'windows') && !inputs.sign-binaries
+        shell: pwsh
+        run: |
+          $configPath = "src-tauri/tauri.conf.json"
+          $config = Get-Content $configPath -Raw | ConvertFrom-Json
+          if ($null -ne $config.bundle.windows.signCommand) {
+            $config.bundle.windows.PSObject.Properties.Remove("signCommand")
+            $config | ConvertTo-Json -Depth 100 | Set-Content $configPath -Encoding utf8
+            Write-Host "Removed bundle.windows.signCommand for unsigned Windows build."
+          } else {
+            Write-Host "No bundle.windows.signCommand found; nothing to remove."
+          }
+
       - name: Build with Tauri
         uses: tauri-apps/tauri-action@v0
         env:
@@ -362,6 +376,24 @@ jobs:
           assetNamePattern: ${{ steps.patch-release-name.outputs.platform }}
           args: ${{ inputs.build-args }}
 
+      - name: Resolve Windows artifact path
+        if: inputs.upload-artifacts && contains(inputs.platform, 'windows')
+        id: win-artifact-path
+        shell: pwsh
+        run: |
+          $base = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { "src-tauri/target" }
+          echo "base=$base" >> $env:GITHUB_OUTPUT
+
+      - name: Upload artifacts (Windows)
+        if: inputs.upload-artifacts && contains(inputs.platform, 'windows')
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.asset-prefix }}-${{ inputs.target }}
+          path: |
+            ${{ steps.win-artifact-path.outputs.base }}/${{ inputs.target != '' && inputs.target != 'x86_64-pc-windows-msvc' && format('{0}/{1}', inputs.target, steps.build-profile.outputs.profile) || steps.build-profile.outputs.profile }}/bundle/msi/*.msi
+            ${{ steps.win-artifact-path.outputs.base }}/${{ inputs.target != '' && inputs.target != 'x86_64-pc-windows-msvc' && format('{0}/{1}', inputs.target, steps.build-profile.outputs.profile) || steps.build-profile.outputs.profile }}/bundle/nsis/*.exe
+          retention-days: 30
+
       - name: Verify macOS dylib bundling
         if: inputs.target == 'x86_64-apple-darwin'
         shell: bash
@@ -384,7 +416,7 @@ jobs:
           done
 
       - name: Upload artifacts (macOS)
-        if: inputs.upload-artifacts && contains(inputs.platform, 'macos')
+        if: always() && inputs.upload-artifacts && contains(inputs.platform, 'macos')
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.asset-prefix }}-${{ inputs.target }}
@@ -451,7 +483,7 @@ jobs:
           fi
 
       - name: Upload artifacts (Linux)
-        if: inputs.upload-artifacts && contains(inputs.platform, 'ubuntu')
+        if: always() && inputs.upload-artifacts && contains(inputs.platform, 'ubuntu')
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.asset-prefix }}-${{ inputs.platform }}-${{ inputs.target }}
@@ -459,22 +491,4 @@ jobs:
             src-tauri/target/${{ steps.build-profile.outputs.profile }}/bundle/deb/*.deb
             src-tauri/target/${{ steps.build-profile.outputs.profile }}/bundle/appimage/*.AppImage
             src-tauri/target/${{ steps.build-profile.outputs.profile }}/bundle/rpm/*.rpm
-          retention-days: 30
-
-      - name: Resolve Windows artifact path
-        if: inputs.upload-artifacts && contains(inputs.platform, 'windows')
-        id: win-artifact-path
-        shell: pwsh
-        run: |
-          $base = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { "src-tauri/target" }
-          echo "base=$base" >> $env:GITHUB_OUTPUT
-
-      - name: Upload artifacts (Windows)
-        if: inputs.upload-artifacts && contains(inputs.platform, 'windows')
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ inputs.asset-prefix }}-${{ inputs.target }}
-          path: |
-            ${{ steps.win-artifact-path.outputs.base }}/${{ inputs.target != '' && inputs.target != 'x86_64-pc-windows-msvc' && format('{0}/{1}', inputs.target, steps.build-profile.outputs.profile) || steps.build-profile.outputs.profile }}/bundle/msi/*.msi
-            ${{ steps.win-artifact-path.outputs.base }}/${{ inputs.target != '' && inputs.target != 'x86_64-pc-windows-msvc' && format('{0}/{1}', inputs.target, steps.build-profile.outputs.profile) || steps.build-profile.outputs.profile }}/bundle/nsis/*.exe
           retention-days: 30
