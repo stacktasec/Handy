@@ -337,7 +337,7 @@ jobs:
             '.bundle.linux.deb.files["/usr/lib/libonnxruntime.so"] = $so | .bundle.linux.deb.files["/usr/lib/libonnxruntime.so.1"] = $so1 | .bundle.linux.deb.files["/usr/lib/libonnxruntime.so.1.24.2"] = $sov' \
             src-tauri/tauri.conf.json > tmp.json && mv tmp.json src-tauri/tauri.conf.json
 
-      - name: Disable Windows signing for unsigned builds
+      - name: Disable signing for unsigned Windows builds
         if: contains(inputs.platform, 'windows') && !inputs.sign-binaries
         shell: pwsh
         run: |
@@ -345,11 +345,14 @@ jobs:
           $config = Get-Content $configPath -Raw | ConvertFrom-Json
           if ($null -ne $config.bundle.windows.signCommand) {
             $config.bundle.windows.PSObject.Properties.Remove("signCommand")
-            $config | ConvertTo-Json -Depth 100 | Set-Content $configPath -Encoding utf8
             Write-Host "Removed bundle.windows.signCommand for unsigned Windows build."
-          } else {
-            Write-Host "No bundle.windows.signCommand found; nothing to remove."
           }
+          if ($config.bundle.createUpdaterArtifacts -ne $false) {
+            $config.bundle.createUpdaterArtifacts = $false
+            Write-Host "Disabled bundle.createUpdaterArtifacts for unsigned Windows build."
+          }
+          $config | ConvertTo-Json -Depth 100 | Set-Content $configPath -Encoding utf8
+          Write-Host "Updated tauri.conf.json for unsigned Windows build."
 
       - name: Build with Tauri
         uses: tauri-apps/tauri-action@v0
@@ -377,7 +380,7 @@ jobs:
           args: ${{ inputs.build-args }}
 
       - name: Resolve Windows artifact path
-        if: inputs.upload-artifacts && contains(inputs.platform, 'windows')
+        if: always() && inputs.upload-artifacts && contains(inputs.platform, 'windows')
         id: win-artifact-path
         shell: pwsh
         run: |
@@ -385,10 +388,11 @@ jobs:
           echo "base=$base" >> $env:GITHUB_OUTPUT
 
       - name: Upload artifacts (Windows)
-        if: inputs.upload-artifacts && contains(inputs.platform, 'windows')
+        if: always() && inputs.upload-artifacts && contains(inputs.platform, 'windows')
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.asset-prefix }}-${{ inputs.target }}
+          if-no-files-found: ignore
           path: |
             ${{ steps.win-artifact-path.outputs.base }}/${{ inputs.target != '' && inputs.target != 'x86_64-pc-windows-msvc' && format('{0}/{1}', inputs.target, steps.build-profile.outputs.profile) || steps.build-profile.outputs.profile }}/bundle/msi/*.msi
             ${{ steps.win-artifact-path.outputs.base }}/${{ inputs.target != '' && inputs.target != 'x86_64-pc-windows-msvc' && format('{0}/{1}', inputs.target, steps.build-profile.outputs.profile) || steps.build-profile.outputs.profile }}/bundle/nsis/*.exe
